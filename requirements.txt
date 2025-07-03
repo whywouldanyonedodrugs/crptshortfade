@@ -1,0 +1,7 @@
+pandas
+pyarrow
+tqdm
+pandas-ta
+ccxt
+python-telegram-bot
+schedule
