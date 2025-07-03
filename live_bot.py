@@ -53,7 +53,7 @@ def fetch_bybit_data(symbol: str, timeframe: str, limit: int = 500) -> pd.DataFr
             logging.warning(f"No data returned for {symbol} on {timeframe} timeframe")
             return None
         df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
-        df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+        df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms', utc=True)
         df.set_index('timestamp', inplace=True)
         df['turnover'] = df['close'] * df['volume']
         return df
