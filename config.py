@@ -11,6 +11,9 @@ TELEGRAM_CHAT_ID      = "2133130545"    # Replace with your Chat ID
 BOT_TIMEFRAME         = "5m"                       # Timeframe for the bot to check for signals
 BOT_SCHEDULE_MINUTES  = 5                          # How often to check for new signals
 
+# In config.py
+SIGNAL_COOLDOWN_MINUTES = 60 # Cooldown per symbol after a signal is sent
+
 # ─── Portfolio ───────────────────────────────────────────────────────
 INITIAL_CAPITAL       = 1_000.0       # USD starting equity
 RISK_PCT              = 0.05          # % equity risked per new trade
