@@ -162,37 +162,58 @@ def check_for_signals():
         adx_ok = not cfg.ADX_FILTER_ENABLED or last_candle[adx_col] > cfg.ADX_MIN_LEVEL
         
         is_signal = all([boom, slow, ema_down, rsi_ok, adx_ok])
+# Inside the if is_signal: block
 
-        if is_signal:
-            logging.info(f"!!! SIGNAL DETECTED for {symbol} !!!")
-            
-            # Format and Send Notification (using the improved message from before)
-            entry_price = last_candle['close']
-            atr_value = last_candle[atr_col]
-            stop_loss = entry_price + cfg.SL_ATR_MULT * atr_value
-            partial_tp_price = entry_price - cfg.PARTIAL_TP_ATR_MULT * atr_value
-            final_tp_price = entry_price - cfg.TP_ATR_MULT * atr_value
-            message = (
-                f"🚨 *New Short Signal: ${symbol}*\n\n"
-                f"**Entry Price:** `{entry_price:.4f}`\n"
-                f"**Stop Loss:**   `{stop_loss:.4f}` (Entry + {cfg.SL_ATR_MULT}x ATR)\n\n"
-                f"**Partial TP (TP1):** `{partial_tp_price:.4f}` (Entry - {cfg.PARTIAL_TP_ATR_MULT}x ATR)\n"
-                f"**Final TP (Optional):** `{final_tp_price:.4f}` (Entry - {cfg.TP_ATR_MULT}x ATR)\n\n"
-                f"*Signal Details:*\n"
-                f"- Time: `{last_candle.name.strftime('%Y-%m-%d %H:%M')}`\n"
-                f"- RSI ({cfg.RSI_TIMEFRAME}): `{last_candle[rsi_col]:.2f}`\n"
-                f"- ADX ({cfg.ADX_TIMEFRAME}): `{last_candle[adx_col]:.2f}`\n"
-                f"- ATR ({cfg.ATR_TIMEFRAME}): `{atr_value:.5f}`"
-            )
-            asyncio.run(send_telegram_message(message))
-            
-            # --- NEW: Update the cooldowns dictionary and save it to the file ---
-            cooldown_end = pd.Timestamp.now(tz='UTC') + pd.Timedelta(minutes=cfg.SIGNAL_COOLDOWN_MINUTES)
-            cooldowns[symbol] = cooldown_end.isoformat()
-            save_cooldowns(cooldowns)
-            logging.info(f"Placed {symbol} in cooldown until {cooldown_end.strftime('%Y-%m-%d %H:%M:%S UTC')}")
+
+
+# Inside the if is_signal: block
+
+if is_signal:
+    logging.info(f"!!! SIGNAL DETECTED for {symbol} !!!")
+    
+    # --- STAGE 1: Initial Trade Parameters ---
+    entry_price = last_candle['close']
+    atr_value = last_candle[atr_col]
+    stop_loss = entry_price + cfg.SL_ATR_MULT * atr_value
+    
+    # --- STAGE 2: Partial Profit and Trail Activation ---
+    partial_tp_price = entry_price - cfg.PARTIAL_TP_ATR_MULT * atr_value
+    
+    # --- NEW, CORRECT CALCULATION: The trailing distance itself ---
+    trail_distance = cfg.TRAIL_ATR_MULT * atr_value
+
+    # --- Create the new, multi-stage message ---
+    message = (
+        f"🚨 *New Short Signal: ${symbol}*\n\n"
+        f"--- *Stage 1: Entry Plan* ---\n"
+        f"**Entry Price:** `{entry_price:.4f}`\n"
+        f"**Stop Loss (Initial):** `{stop_loss:.4f}`\n\n"
         
-        time.sleep(2)
+        f"--- *Stage 2: Trade Management* ---\n"
+        f"**Partial TP (TP1):** `{partial_tp_price:.4f}`\n"
+        f"*(At this price, close {cfg.PARTIAL_CLOSE_PCT*100:.0f}% of position)*\n\n"
+        
+        f"**Trailing Stop Activates at TP1**\n"
+        f"**Trail Distance:** `{trail_distance:.5f}` ({cfg.TRAIL_ATR_MULT}x ATR)\n\n"
+        
+        f"_*Remainder of position is managed by this trailing stop.*_\n\n"
+
+        f"--- *Signal Details* ---\n"
+        f"- Time: `{last_candle.name.strftime('%Y-%m-%d %H:%M')}`\n"
+        f"- RSI ({cfg.RSI_TIMEFRAME}): `{last_candle[rsi_col]:.2f}`\n"
+        f"- ADX ({cfg.ADX_TIMEFRAME}): `{last_candle[adx_col]:.2f}`\n"
+        f"- ATR ({cfg.ATR_TIMEFRAME}): `{atr_value:.5f}`"
+    )
+    
+    asyncio.run(send_telegram_message(message))
+    
+    # Cooldown logic remains the same...
+    cooldown_end = pd.Timestamp.now(tz='UTC') + pd.Timedelta(minutes=cfg.SIGNAL_COOLDOWN_MINUTES)
+    cooldowns[symbol] = cooldown_end.isoformat()
+    save_cooldowns(cooldowns)
+    logging.info(f"Placed {symbol} in cooldown until {cooldown_end.strftime('%Y-%m-%d %H:%M:%S UTC')}")
+
+time.sleep(2)
 
 # --- Main Execution (No changes here) ---
 if __name__ == "__main__":
