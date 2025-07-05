@@ -208,7 +208,7 @@ def check_for_signals():
             if pd.Timestamp.now(tz='UTC') < cooldown_end_time:
                 continue
 
-        logging.info(f"--- Checking {symbol} ---") # Changed to a more prominent header
+        logging.info(f"--- Checking {symbol} ---")
         
         df_prep = _prep_live_data(symbol, bybit)
         
@@ -221,36 +221,90 @@ def check_for_signals():
         if symbol in cooldowns and pd.to_datetime(cooldowns[symbol]) > last_candle.name:
              continue
 
-        # --- Calculate all strategy conditions ---
         boom = (last_candle["close"] - last_candle["close_boom_ago"]) / last_candle["close_boom_ago"] >= cfg.PRICE_BOOM_PCT
         slow = (last_candle["close"] - last_candle["close_slowdown_ago"]) / last_candle["close_slowdown_ago"] <= cfg.PRICE_SLOWDOWN_PCT
         is_core_signal = boom and slow
 
-        # --- ALWAYS-ON "WHY NOT?" REPORT ---
-        # This block now runs for every symbol, every time.
         logging.info(f"  Timestamp: {last_candle.name}")
         logging.info(f"  [Core] Boom Condition Met?: {boom}")
         logging.info(f"  [Core] Slow Condition Met?: {slow}")
         logging.info(f"  >>> Core Signal Triggered?: {is_core_signal} <<<")
         
+        # --- THIS IS THE CORRECTED BLOCK ---
         if is_core_signal:
             logging.info(f"!!! CORE SIGNAL FOUND for {symbol} !!!")
-            # ... (The entire message sending block remains the same) ...
-            # ... (It starts with entry_price = last_candle['close'] ...)
-            entry_price = last_candle['close']
+            
+            # --- All the message logic is now correctly inside the 'if' statement ---
             atr_col = f"atr_{cfg.ATR_TIMEFRAME}"
+            rsi_col = f"rsi_{cfg.RSI_TIMEFRAME}"
+            adx_col = f"adx_{cfg.ADX_TIMEFRAME}"
+
+            entry_price = last_candle['close']
             atr_value = last_candle.get(atr_col, float('nan'))
             stop_loss = entry_price + cfg.SL_ATR_MULT * atr_value
             partial_tp_price = entry_price - cfg.PARTIAL_TP_ATR_MULT * atr_value
             trail_distance = cfg.TRAIL_ATR_MULT * atr_value
 
-            # (The rest of the message creation and sending logic goes here, unchanged)
-            # ...
+            context_lines = []
+            if cfg.SHOW_EMA_TREND_CONTEXT:
+                ema_fast = last_candle.get('ema_fast_4h', float('nan'))
+                ema_slow = last_candle.get('ema_slow_4h', float('nan'))
+                if pd.notna(ema_fast) and pd.notna(ema_slow):
+                    ema_trend_ok = ema_fast < ema_slow
+                    icon = "✅" if ema_trend_ok else "❌"
+                    context_lines.append(f"{icon} *EMA Trend (4h):* Fast < Slow? `{ema_trend_ok}`")
+                else:
+                    context_lines.append("⚠️ *EMA Trend (4h):* `Data N/A`")
+            if cfg.SHOW_RSI_CONTEXT:
+                rsi_val = last_candle.get(rsi_col, float('nan'))
+                if pd.notna(rsi_val):
+                    rsi_ok = cfg.RSI_ENTRY_MIN <= rsi_val <= cfg.RSI_ENTRY_MAX
+                    icon = "✅" if rsi_ok else "❌"
+                    context_lines.append(f"{icon} *RSI ({cfg.RSI_TIMEFRAME}):* `{rsi_val:.2f}` (Ideal? `{rsi_ok}`)")
+            if cfg.SHOW_ADX_CONTEXT:
+                adx_val = last_candle.get(adx_col, float('nan'))
+                if pd.notna(adx_val):
+                    context_lines.append(f"📈 *ADX ({cfg.ADX_TIMEFRAME}):* `{adx_val:.2f}`")
+            if cfg.SHOW_STRUCTURAL_CONTEXT:
+                ret_30d = last_candle.get('ret_30d', float('nan'))
+                if pd.notna(ret_30d):
+                    context_lines.append(f"📉 *30d Return:* `{ret_30d:.1%}`")
+            if cfg.SHOW_BTC_FAST_FILTER_CONTEXT and btc_df is not None:
+                btc_last = btc_df.reindex([last_candle.name], method='ffill').iloc[0]
+                btc_price = btc_last.get('close', float('nan'))
+                btc_ema = btc_last.get('ema', float('nan'))
+                if pd.notna(btc_price) and pd.notna(btc_ema):
+                    btc_market_is_hot = btc_price > btc_ema
+                    icon = "❌" if btc_market_is_hot else "✅"
+                    context_lines.append(f"{icon} *BTC Filter:* Market Hot? `{btc_market_is_hot}`")
+            context_message = "\n".join(context_lines)
 
-        # Add a separator for readability in the logs
+            message = (
+                f"🎯 *New Short Opportunity: ${symbol}*\n\n"
+                f"--- *Core Setup (Boom & Slowdown)* ---\n"
+                f"**Entry Price:** `{entry_price:.4f}`\n"
+                f"**Stop Loss:** `{stop_loss:.4f}`\n"
+                f"**Partial TP (TP1):** `{partial_tp_price:.4f}`\n"
+                f"**Trail Distance:** `{trail_distance:.5f}`\n\n"
+                f"--- *Contextual Analysis* ---\n"
+                f"{context_message}\n\n"
+                f"_*Discretionary decision required._"
+            )
+            
+            asyncio.run(send_telegram_message(message))
+            
+            cooldown_end = pd.Timestamp.now(tz='UTC') + pd.Timedelta(minutes=cfg.SIGNAL_COOLDOWN_MINUTES)
+            cooldowns[symbol] = cooldown_end.isoformat()
+            save_cooldowns(cooldowns)
+            logging.info(f"Sent opportunity alert for {symbol}. Cooldown until {cooldown_end.strftime('%Y-%m-%d %H:%M:%S UTC')}")
+
         logging.info("-" * 40) 
         
-        time.sleep(0) # A 2-second sleep is reasonable for serial processing
+        time.sleep(0)
+
+
+
+
 # --- Main Execution ---
 if __name__ == "__main__":
     logging.info("Starting Crypto Signal Bot...")
