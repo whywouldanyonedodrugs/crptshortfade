@@ -42,16 +42,37 @@ def save_cooldowns(cooldowns: dict):
         json.dump(cooldowns, f, indent=4)
 
 # --- Bybit Data Fetcher ---
-def fetch_bybit_data(symbol: str, timeframe: str, limit: int = 500) -> pd.DataFrame | None:
+# In live_bot.py
+
+def fetch_bybit_data(symbol: str, timeframe: str, limit: int = 200) -> pd.DataFrame | None:
+    """
+    Fetches OHLCV data for Bybit perpetuals. This version is more flexible
+    to handle different API behaviors for daily vs. intraday timeframes.
+    """
     try:
         bybit = ccxt.bybit()
         bybit.load_markets()
         market = bybit.market(symbol)
-        params = {'type': 'swap', 'subType': 'linear'}
-        ohlcv = bybit.fetch_ohlcv(symbol, timeframe, limit=limit, params=params)
+        
+        # --- NEW FLEXIBLE LOGIC ---
+        # Start with base parameters
+        params = {'type': 'swap'}
+        
+        # Only add the 'subType' for non-daily timeframes, as it can sometimes
+        # cause issues with fetching historical daily data for some pairs.
+        if timeframe.upper() != '1D':
+            params['subType'] = 'linear'
+
+        # Use the provided limit for intraday, but let ccxt use its default for daily.
+        fetch_limit = limit if timeframe.upper() != '1D' else None
+        
+        # Fetch OHLCV data
+        ohlcv = bybit.fetch_ohlcv(symbol, timeframe, limit=fetch_limit, params=params)
+        
         if not ohlcv:
             logging.warning(f"No data returned for {symbol} on {timeframe} timeframe")
             return None
+
         df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
         df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms', utc=True)
         df.set_index('timestamp', inplace=True)
@@ -63,6 +84,9 @@ def fetch_bybit_data(symbol: str, timeframe: str, limit: int = 500) -> pd.DataFr
     except Exception as e:
         logging.error(f"Error fetching data for {symbol} on {timeframe}: {e}")
         return None
+
+
+
 
 # --- Telegram Notifier ---
 async def send_telegram_message(message: str):
