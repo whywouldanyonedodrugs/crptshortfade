@@ -195,9 +195,11 @@ def check_for_signals():
         if btc_df is not None:
             btc_df['ema'] = ta.ema(btc_df['close'], cfg.BTC_FAST_EMA_PERIOD)
 
+    # The NEW code block
     try:
         with open(cfg.SYMBOLS_FILE, 'r') as fh:
-            symbols = [s.strip().upper() for s in fh if s.strip() and not s.startswith("#")]
+            # This new line splits each line by whitespace and takes the first element.
+            symbols = [line.split()[0].strip().upper() for line in fh if line.strip() and not line.strip().startswith("#")]
     except FileNotFoundError:
         logging.error(f"'{cfg.SYMBOLS_FILE}' not found. Exiting.")
         return
