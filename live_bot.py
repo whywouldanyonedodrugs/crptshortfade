@@ -103,24 +103,28 @@ async def send_telegram_message(message: str):
 
 # --- Data Preparation ---
 def _prep_live_data(symbol: str) -> pd.DataFrame | None:
-    # Fetch base 5m data
-    # For a 30-day lookback, we need more data. 30 days * 24 hours/day * 12 5-min-candles/hour = 8640
-    # Bybit API limit is 1000, so we can't get this in one go. We'll fetch daily data for the structural trend.
-    df5 = fetch_bybit_data(symbol, cfg.BOT_TIMEFRAME, limit=1000) # Max limit
-    if df5 is None: return None
-
-    # Fetch higher timeframe data for indicators
+    """
+    Prepares the live data DataFrame with all necessary indicators.
+    This version is robust and handles missing daily data gracefully.
+    """
+    # --- 1. Fetch ESSENTIAL intraday data ---
+    # These are required for the core logic to run.
+    df5 = fetch_bybit_data(symbol, cfg.BOT_TIMEFRAME, limit=1000)
     df4h = fetch_bybit_data(symbol, "4h", limit=300)
-    df_atr_tf = fetch_bybit_data(symbol, cfg.ATR_TIMEFRAME, limit=100)
-    df_rsi_tf = fetch_bybit_data(symbol, cfg.RSI_TIMEFRAME, limit=100)
-    df_adx_tf = fetch_bybit_data(symbol, cfg.ADX_TIMEFRAME, limit=100)
-    df_daily = fetch_bybit_data(symbol, "1D", limit=50) # For structural trend
+    df_atr_tf = fetch_bybit_data(symbol, cfg.ATR_TIMEFRAME, limit=200)
+    df_rsi_tf = fetch_bybit_data(symbol, cfg.RSI_TIMEFRAME, limit=200)
+    df_adx_tf = fetch_bybit_data(symbol, cfg.ADX_TIMEFRAME, limit=200)
 
-    if any(df is None for df in [df4h, df_atr_tf, df_rsi_tf, df_adx_tf, df_daily]):
-        logging.warning(f"Could not fetch all required timeframes for {symbol}")
+    # --- 2. Check if ESSENTIAL data was fetched successfully ---
+    if any(df is None for df in [df5, df4h, df_atr_tf, df_rsi_tf, df_adx_tf]):
+        logging.warning(f"Could not fetch one or more essential intraday timeframes for {symbol}")
         return None
 
-    # Calculate indicators
+    # --- 3. Try to fetch OPTIONAL daily data for context ---
+    # The bot will not fail if this request returns no data.
+    df_daily = fetch_bybit_data(symbol, "1D")
+
+    # --- 4. Calculate indicators on their respective timeframes ---
     df4h["ema_fast"] = ta.ema(df4h["close"], cfg.EMA_FAST)
     df4h["ema_slow"] = ta.ema(df4h["close"], cfg.EMA_SLOW)
     atr_col = f"atr_{cfg.ATR_TIMEFRAME}"
@@ -130,24 +134,31 @@ def _prep_live_data(symbol: str) -> pd.DataFrame | None:
     adx_col = f"adx_{cfg.ADX_TIMEFRAME}"
     df_adx_tf[adx_col] = ta.adx(df_adx_tf, period=cfg.ADX_PERIOD)
     
-    # Calculate 30-day return from daily data
-    df_daily['ret_30d'] = (df_daily['close'] / df_daily['close'].shift(cfg.STRUCTURAL_TREND_DAYS)) - 1
-
-    # Merge all indicators back onto the 5m DataFrame
+    # --- 5. Merge essential indicators back onto the 5m DataFrame ---
     df5[["ema_fast_4h", "ema_slow_4h"]] = df4h[["ema_fast", "ema_slow"]].reindex(df5.index, method="ffill")
     df5[atr_col] = df_atr_tf[atr_col].reindex(df5.index, method="ffill")
     df5[rsi_col] = df_rsi_tf[rsi_col].reindex(df5.index, method="ffill")
     df5[adx_col] = df_adx_tf[adx_col].reindex(df5.index, method="ffill")
-    df5['ret_30d'] = df_daily['ret_30d'].reindex(df5.index, method="ffill")
 
-    # Calculate look-back columns on the 5m DataFrame
+    # --- 6. Robustly handle the optional structural trend data ---
+    if df_daily is not None and not df_daily.empty:
+        # If we got daily data, calculate and merge the 30-day return.
+        df_daily['ret_30d'] = (df_daily['close'] / df_daily['close'].shift(cfg.STRUCTURAL_TREND_DAYS)) - 1
+        df5['ret_30d'] = df_daily['ret_30d'].reindex(df5.index, method="ffill")
+    else:
+        # If no daily data, create a placeholder column of NaNs.
+        # This prevents the rest of the code from crashing.
+        df5['ret_30d'] = float('nan')
+
+    # --- 7. Calculate final look-back columns ---
     BARS_PER_HOUR = 60 // int(cfg.BOT_TIMEFRAME.replace('m', ''))
     BOOM_BAR_COUNT = BARS_PER_HOUR * cfg.PRICE_BOOM_PERIOD_H
     SLOWDOWN_BAR_COUNT = BARS_PER_HOUR * cfg.PRICE_SLOWDOWN_PERIOD_H
     df5["close_boom_ago"] = df5["close"].shift(BOOM_BAR_COUNT)
     df5["close_slowdown_ago"] = df5["close"].shift(SLOWDOWN_BAR_COUNT)
     
-    return df5.dropna(subset=['close_boom_ago', 'close_slowdown_ago']) # Only drop if core calcs are NaN
+    # Only require the core calculation columns to be non-NaN to proceed.
+    return df5.dropna(subset=['close_boom_ago', 'close_slowdown_ago'])
 
 # In live_bot.py
 
