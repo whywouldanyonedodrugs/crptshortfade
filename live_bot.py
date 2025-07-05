@@ -79,15 +79,24 @@ async def send_telegram_message(message: str):
 
 # --- Data Preparation ---
 def _prep_live_data(symbol: str) -> pd.DataFrame | None:
-    df5 = fetch_bybit_data(symbol, cfg.BOT_TIMEFRAME, limit=500)
+    # Fetch base 5m data
+    # For a 30-day lookback, we need more data. 30 days * 24 hours/day * 12 5-min-candles/hour = 8640
+    # Bybit API limit is 1000, so we can't get this in one go. We'll fetch daily data for the structural trend.
+    df5 = fetch_bybit_data(symbol, cfg.BOT_TIMEFRAME, limit=1000) # Max limit
     if df5 is None: return None
+
+    # Fetch higher timeframe data for indicators
     df4h = fetch_bybit_data(symbol, "4h", limit=300)
     df_atr_tf = fetch_bybit_data(symbol, cfg.ATR_TIMEFRAME, limit=100)
     df_rsi_tf = fetch_bybit_data(symbol, cfg.RSI_TIMEFRAME, limit=100)
     df_adx_tf = fetch_bybit_data(symbol, cfg.ADX_TIMEFRAME, limit=100)
-    if any(df is None for df in [df4h, df_atr_tf, df_rsi_tf, df_adx_tf]):
+    df_daily = fetch_bybit_data(symbol, "1D", limit=50) # For structural trend
+
+    if any(df is None for df in [df4h, df_atr_tf, df_rsi_tf, df_adx_tf, df_daily]):
         logging.warning(f"Could not fetch all required timeframes for {symbol}")
         return None
+
+    # Calculate indicators
     df4h["ema_fast"] = ta.ema(df4h["close"], cfg.EMA_FAST)
     df4h["ema_slow"] = ta.ema(df4h["close"], cfg.EMA_SLOW)
     atr_col = f"atr_{cfg.ATR_TIMEFRAME}"
@@ -96,16 +105,25 @@ def _prep_live_data(symbol: str) -> pd.DataFrame | None:
     df_rsi_tf[rsi_col] = ta.rsi(df_rsi_tf["close"], cfg.RSI_PERIOD)
     adx_col = f"adx_{cfg.ADX_TIMEFRAME}"
     df_adx_tf[adx_col] = ta.adx(df_adx_tf, period=cfg.ADX_PERIOD)
+    
+    # Calculate 30-day return from daily data
+    df_daily['ret_30d'] = (df_daily['close'] / df_daily['close'].shift(cfg.STRUCTURAL_TREND_DAYS)) - 1
+
+    # Merge all indicators back onto the 5m DataFrame
     df5[["ema_fast_4h", "ema_slow_4h"]] = df4h[["ema_fast", "ema_slow"]].reindex(df5.index, method="ffill")
     df5[atr_col] = df_atr_tf[atr_col].reindex(df5.index, method="ffill")
     df5[rsi_col] = df_rsi_tf[rsi_col].reindex(df5.index, method="ffill")
     df5[adx_col] = df_adx_tf[adx_col].reindex(df5.index, method="ffill")
+    df5['ret_30d'] = df_daily['ret_30d'].reindex(df5.index, method="ffill")
+
+    # Calculate look-back columns on the 5m DataFrame
     BARS_PER_HOUR = 60 // int(cfg.BOT_TIMEFRAME.replace('m', ''))
     BOOM_BAR_COUNT = BARS_PER_HOUR * cfg.PRICE_BOOM_PERIOD_H
     SLOWDOWN_BAR_COUNT = BARS_PER_HOUR * cfg.PRICE_SLOWDOWN_PERIOD_H
     df5["close_boom_ago"] = df5["close"].shift(BOOM_BAR_COUNT)
     df5["close_slowdown_ago"] = df5["close"].shift(SLOWDOWN_BAR_COUNT)
-    return df5.dropna()
+    
+    return df5.dropna(subset=['close_boom_ago', 'close_slowdown_ago']) # Only drop if core calcs are NaN
 
 # In live_bot.py
 
@@ -114,6 +132,13 @@ def check_for_signals():
     logging.info("--- Starting new signal check cycle ---")
     
     cooldowns = load_cooldowns()
+
+    # --- NEW: Fetch BTC data once per cycle ---
+    btc_df = None
+    if cfg.SHOW_BTC_FAST_FILTER_CONTEXT and cfg.BTC_FAST_FILTER_ENABLED:
+        btc_df = fetch_bybit_data("BTCUSDT", cfg.BTC_FAST_TIMEFRAME, limit=100)
+        if btc_df is not None:
+            btc_df['ema'] = ta.ema(btc_df['close'], cfg.BTC_FAST_EMA_PERIOD)
 
     try:
         with open(cfg.SYMBOLS_FILE, 'r') as fh:
@@ -140,65 +165,78 @@ def check_for_signals():
         if symbol in cooldowns and pd.to_datetime(cooldowns[symbol]) > last_candle.name:
              continue
 
-        atr_col = f"atr_{cfg.ATR_TIMEFRAME}"
-        rsi_col = f"rsi_{cfg.RSI_TIMEFRAME}"
-        adx_col = f"adx_{cfg.ADX_TIMEFRAME}"
-
-        # --- Calculate all strategy conditions ---
+        # --- CORE TRIGGER LOGIC ---
         boom = (last_candle["close"] - last_candle["close_boom_ago"]) / last_candle["close_boom_ago"] >= cfg.PRICE_BOOM_PCT
         slow = (last_candle["close"] - last_candle["close_slowdown_ago"]) / last_candle["close_slowdown_ago"] <= cfg.PRICE_SLOWDOWN_PCT
-        ema_down = last_candle["ema_fast_4h"] < last_candle["ema_slow_4h"]
-        rsi_ok = cfg.RSI_ENTRY_MIN <= last_candle[rsi_col] <= cfg.RSI_ENTRY_MAX
-        adx_ok = not cfg.ADX_FILTER_ENABLED or last_candle[adx_col] > cfg.ADX_MIN_LEVEL
         
-        # --- NEW DEBUG BLOCK ---
-        # If the current symbol matches our debug symbol, print detailed information.
-        if cfg.DEBUG_SYMBOL and symbol.upper() == cfg.DEBUG_SYMBOL.upper():
-            logging.info(f"--- DEBUGGING {symbol} at {last_candle.name} ---")
-            logging.info(f"  Close Price: {last_candle['close']:.4f}")
-            logging.info(f"  Boom Lookback Price: {last_candle['close_boom_ago']:.4f}")
-            logging.info(f"  Slowdown Lookback Price: {last_candle['close_slowdown_ago']:.4f}")
-            logging.info(f"  EMA Fast (4h): {last_candle['ema_fast_4h']:.4f}")
-            logging.info(f"  EMA Slow (4h): {last_candle['ema_slow_4h']:.4f}")
-            logging.info(f"  RSI: {last_candle[rsi_col]:.2f}")
-            logging.info(f"  ADX: {last_candle[adx_col]:.2f}")
-            logging.info("  --- Conditions ---")
-            logging.info(f"  [Boom >= {cfg.PRICE_BOOM_PCT*100}%]: {boom}")
-            logging.info(f"  [Slow <= {cfg.PRICE_SLOWDOWN_PCT*100}%]: {slow}")
-            logging.info(f"  [EMA Fast < EMA Slow]: {ema_down}")
-            logging.info(f"  [RSI between {cfg.RSI_ENTRY_MIN}-{cfg.RSI_ENTRY_MAX}]: {rsi_ok}")
-            logging.info(f"  [ADX > {cfg.ADX_MIN_LEVEL}]: {adx_ok}")
-            logging.info("------------------------------------")
-        # --- END OF DEBUG BLOCK ---
+        is_core_signal = boom and slow
 
-        is_signal = all([boom, slow, ema_down, rsi_ok, adx_ok])
-
-        if is_signal:
-            # ... (The message sending logic remains the same) ...
-            logging.info(f"!!! SIGNAL DETECTED for {symbol} !!!")
+        if is_core_signal:
+            logging.info(f"!!! CORE SIGNAL FOUND for {symbol} !!!")
             
+            # --- Gather all data for the message ---
+            atr_col = f"atr_{cfg.ATR_TIMEFRAME}"
+            rsi_col = f"rsi_{cfg.RSI_TIMEFRAME}"
+            adx_col = f"adx_{cfg.ADX_TIMEFRAME}"
+
             entry_price = last_candle['close']
-            atr_value = last_candle[atr_col]
+            atr_value = last_candle.get(atr_col, float('nan'))
             stop_loss = entry_price + cfg.SL_ATR_MULT * atr_value
             partial_tp_price = entry_price - cfg.PARTIAL_TP_ATR_MULT * atr_value
             trail_distance = cfg.TRAIL_ATR_MULT * atr_value
 
+            # --- Build the dynamic context message ---
+            context_lines = []
+
+            if cfg.SHOW_EMA_TREND_CONTEXT:
+                ema_fast = last_candle.get('ema_fast_4h', float('nan'))
+                ema_slow = last_candle.get('ema_slow_4h', float('nan'))
+                if pd.notna(ema_fast) and pd.notna(ema_slow):
+                    ema_trend_ok = ema_fast < ema_slow
+                    icon = "✅" if ema_trend_ok else "❌"
+                    context_lines.append(f"{icon} *EMA Trend (4h):* Fast < Slow? `{ema_trend_ok}`")
+                else:
+                    context_lines.append("⚠️ *EMA Trend (4h):* `Data N/A`")
+
+            if cfg.SHOW_RSI_CONTEXT:
+                rsi_val = last_candle.get(rsi_col, float('nan'))
+                if pd.notna(rsi_val):
+                    rsi_ok = cfg.RSI_ENTRY_MIN <= rsi_val <= cfg.RSI_ENTRY_MAX
+                    icon = "✅" if rsi_ok else "❌"
+                    context_lines.append(f"{icon} *RSI ({cfg.RSI_TIMEFRAME}):* `{rsi_val:.2f}` (Ideal? `{rsi_ok}`)")
+
+            if cfg.SHOW_ADX_CONTEXT:
+                adx_val = last_candle.get(adx_col, float('nan'))
+                if pd.notna(adx_val):
+                    context_lines.append(f"📈 *ADX ({cfg.ADX_TIMEFRAME}):* `{adx_val:.2f}`")
+
+            if cfg.SHOW_STRUCTURAL_CONTEXT:
+                ret_30d = last_candle.get('ret_30d', float('nan'))
+                if pd.notna(ret_30d):
+                    context_lines.append(f"📉 *30d Return:* `{ret_30d:.1%}`")
+
+            if cfg.SHOW_BTC_FAST_FILTER_CONTEXT and btc_df is not None:
+                btc_last = btc_df.reindex([last_candle.name], method='ffill').iloc[0]
+                btc_price = btc_last.get('close', float('nan'))
+                btc_ema = btc_last.get('ema', float('nan'))
+                if pd.notna(btc_price) and pd.notna(btc_ema):
+                    btc_market_is_hot = btc_price > btc_ema
+                    icon = "❌" if btc_market_is_hot else "✅"
+                    context_lines.append(f"{icon} *BTC Filter:* Market Hot? `{btc_market_is_hot}`")
+
+            context_message = "\n".join(context_lines)
+
+            # --- Final Message Assembly ---
             message = (
-                f"🚨 *New Short Signal: ${symbol}*\n\n"
-                f"--- *Stage 1: Entry Plan* ---\n"
+                f"🎯 *New Short Opportunity: ${symbol}*\n\n"
+                f"--- *Core Setup (Boom & Slowdown)* ---\n"
                 f"**Entry Price:** `{entry_price:.4f}`\n"
-                f"**Stop Loss (Initial):** `{stop_loss:.4f}`\n\n"
-                f"--- *Stage 2: Trade Management* ---\n"
+                f"**Stop Loss:** `{stop_loss:.4f}`\n"
                 f"**Partial TP (TP1):** `{partial_tp_price:.4f}`\n"
-                f"*(At this price, close {cfg.PARTIAL_CLOSE_PCT*100:.0f}% of position)*\n\n"
-                f"**Trailing Stop Activates at TP1**\n"
-                f"**Trail Distance:** `{trail_distance:.5f}` ({cfg.TRAIL_ATR_MULT}x ATR)\n\n"
-                f"_*Remainder of position is managed by this trailing stop.*_\n\n"
-                f"--- *Signal Details* ---\n"
-                f"- Time: `{last_candle.name.strftime('%Y-%m-%d %H:%M')}`\n"
-                f"- RSI ({cfg.RSI_TIMEFRAME}): `{last_candle[rsi_col]:.2f}`\n"
-                f"- ADX ({cfg.ADX_TIMEFRAME}): `{last_candle[adx_col]:.2f}`\n"
-                f"- ATR ({cfg.ATR_TIMEFRAME}): `{atr_value:.5f}`"
+                f"**Trail Distance:** `{trail_distance:.5f}`\n\n"
+                f"--- *Contextual Analysis* ---\n"
+                f"{context_message}\n\n"
+                f"_*Discretionary decision required._"
             )
             
             asyncio.run(send_telegram_message(message))
@@ -206,7 +244,7 @@ def check_for_signals():
             cooldown_end = pd.Timestamp.now(tz='UTC') + pd.Timedelta(minutes=cfg.SIGNAL_COOLDOWN_MINUTES)
             cooldowns[symbol] = cooldown_end.isoformat()
             save_cooldowns(cooldowns)
-            logging.info(f"Placed {symbol} in cooldown until {cooldown_end.strftime('%Y-%m-%d %H:%M:%S UTC')}")
+            logging.info(f"Sent opportunity alert for {symbol}. Cooldown until {cooldown_end.strftime('%Y-%m-%d %H:%M:%S UTC')}")
         
         time.sleep(2)
 
