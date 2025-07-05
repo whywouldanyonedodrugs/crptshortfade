@@ -108,27 +108,21 @@ async def send_telegram_message(message: str):
 # --- Data Preparation ---
 def _prep_live_data(symbol: str) -> pd.DataFrame | None:
     """
-    Prepares the live data DataFrame with all necessary indicators.
-    This version is robust and handles missing daily data gracefully.
+    Prepares the live data DataFrame. This version uses a precise historical
+    5-minute candle fetch for the 30-day structural trend.
     """
     # --- 1. Fetch ESSENTIAL intraday data ---
-    # These are required for the core logic to run.
     df5 = fetch_bybit_data(symbol, cfg.BOT_TIMEFRAME, limit=1000)
     df4h = fetch_bybit_data(symbol, "4h", limit=300)
     df_atr_tf = fetch_bybit_data(symbol, cfg.ATR_TIMEFRAME, limit=200)
     df_rsi_tf = fetch_bybit_data(symbol, cfg.RSI_TIMEFRAME, limit=200)
     df_adx_tf = fetch_bybit_data(symbol, cfg.ADX_TIMEFRAME, limit=200)
 
-    # --- 2. Check if ESSENTIAL data was fetched successfully ---
     if any(df is None for df in [df5, df4h, df_atr_tf, df_rsi_tf, df_adx_tf]):
-        logging.warning(f"Could not fetch one or more essential intraday timeframes for {symbol}")
+        logging.warning(f"Could not fetch one or more essential intraday timeframes for {symbol}. Skipping.")
         return None
 
-    # --- 3. Try to fetch OPTIONAL daily data for context ---
-    # The bot will not fail if this request returns no data.
-    df_daily = fetch_bybit_data(symbol, "1D")
-
-    # --- 4. Calculate indicators on their respective timeframes ---
+    # --- 2. Calculate intraday indicators ---
     df4h["ema_fast"] = ta.ema(df4h["close"], cfg.EMA_FAST)
     df4h["ema_slow"] = ta.ema(df4h["close"], cfg.EMA_SLOW)
     atr_col = f"atr_{cfg.ATR_TIMEFRAME}"
@@ -138,30 +132,43 @@ def _prep_live_data(symbol: str) -> pd.DataFrame | None:
     adx_col = f"adx_{cfg.ADX_TIMEFRAME}"
     df_adx_tf[adx_col] = ta.adx(df_adx_tf, period=cfg.ADX_PERIOD)
     
-    # --- 5. Merge essential indicators back onto the 5m DataFrame ---
+    # --- 3. Merge essential indicators back onto the 5m DataFrame ---
     df5[["ema_fast_4h", "ema_slow_4h"]] = df4h[["ema_fast", "ema_slow"]].reindex(df5.index, method="ffill")
     df5[atr_col] = df_atr_tf[atr_col].reindex(df5.index, method="ffill")
     df5[rsi_col] = df_rsi_tf[rsi_col].reindex(df5.index, method="ffill")
     df5[adx_col] = df_adx_tf[adx_col].reindex(df5.index, method="ffill")
 
-    # --- 6. Robustly handle the optional structural trend data ---
-    if df_daily is not None and not df_daily.empty:
-        # If we got daily data, calculate and merge the 30-day return.
-        df_daily['ret_30d'] = (df_daily['close'] / df_daily['close'].shift(cfg.STRUCTURAL_TREND_DAYS)) - 1
-        df5['ret_30d'] = df_daily['ret_30d'].reindex(df5.index, method="ffill")
-    else:
-        # If no daily data, create a placeholder column of NaNs.
-        # This prevents the rest of the code from crashing.
-        df5['ret_30d'] = float('nan')
+    # --- 4. PRECISE fetch for Structural Trend ---
+    ret_30d = float('nan') # Default to NaN
+    try:
+        # Get the target timestamp for 30 days ago
+        target_timestamp = pd.Timestamp.now(tz='UTC') - pd.Timedelta(days=cfg.STRUCTURAL_TREND_DAYS)
+        since_ms = int(target_timestamp.timestamp() * 1000)
+        
+        # Fetch a small window of 5-minute candles around our target time
+        historical_candles = bybit.fetch_ohlcv(symbol, '5m', since=since_ms, limit=5, params={'type': 'swap'})
+        
+        if historical_candles and len(historical_candles) > 0:
+            # The first candle in the list is the one closest to our target time
+            price_30_days_ago = historical_candles[0][4] # Index 4 is the 'close' price
+            current_price = df5['close'].iloc[-1]
+            ret_30d = (current_price / price_30_days_ago) - 1
+        else:
+            logging.warning(f"Could not fetch precise 30-day historical 5m candle for {symbol}.")
 
-    # --- 7. Calculate final look-back columns ---
+    except Exception as e:
+        logging.error(f"Error during precise 30-day return calculation for {symbol}: {e}")
+    
+    # Add the calculated return to the DataFrame. It will be the same value for all rows.
+    df5['ret_30d'] = ret_30d
+
+    # --- 5. Calculate final look-back columns ---
     BARS_PER_HOUR = 60 // int(cfg.BOT_TIMEFRAME.replace('m', ''))
     BOOM_BAR_COUNT = BARS_PER_HOUR * cfg.PRICE_BOOM_PERIOD_H
     SLOWDOWN_BAR_COUNT = BARS_PER_HOUR * cfg.PRICE_SLOWDOWN_PERIOD_H
     df5["close_boom_ago"] = df5["close"].shift(BOOM_BAR_COUNT)
     df5["close_slowdown_ago"] = df5["close"].shift(SLOWDOWN_BAR_COUNT)
     
-    # Only require the core calculation columns to be non-NaN to proceed.
     return df5.dropna(subset=['close_boom_ago', 'close_slowdown_ago'])
 
 # In live_bot.py
