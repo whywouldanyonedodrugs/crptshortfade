@@ -44,34 +44,25 @@ def save_cooldowns(cooldowns: dict):
 # --- Bybit Data Fetcher ---
 # In live_bot.py
 
-def fetch_bybit_data(symbol: str, timeframe: str, limit: int = 200) -> pd.DataFrame | None:
+# In live_bot.py
+
+def fetch_bybit_data(symbol: str, timeframe: str, bybit: ccxt.Exchange, limit: int = 200) -> pd.DataFrame | None:
     """
-    Fetches OHLCV data for Bybit perpetuals. This version is designed to be
-    as robust as possible for all symbols and timeframes.
+    Fetches OHLCV data for Bybit perpetuals using a pre-initialized client.
     """
     try:
-        bybit = ccxt.bybit()
-        # No need to load markets every time, ccxt handles it implicitly.
-        
-        # Bybit's API for historical data can be sensitive.
-        # The most reliable method is often to specify the market type
-        # and let ccxt handle the default limit for historical pulls.
-        params = {'type': 'swap', 'subType': 'linear'}
-        
-        # Let ccxt manage the limit for historical (1D) data by setting it to None.
-        # For intraday, we use the specified limit.
-        fetch_limit = limit if timeframe.upper() != '1D' else None
+        params = {'type': 'swap'}
+        if timeframe.upper() != '1D':
+            params['subType'] = 'linear'
 
-        # Fetch OHLCV data
+        fetch_limit = limit if timeframe.upper() != '1D' else None
+        
         ohlcv = bybit.fetch_ohlcv(symbol, timeframe, limit=fetch_limit, params=params)
         
-        if not ohlcv:
-            # If the first attempt fails, try a more general request without subType for 1D.
-            # This can sometimes help with older or differently categorized symbols.
-            if timeframe.upper() == '1D':
-                logging.warning(f"Initial 1D fetch for {symbol} failed. Retrying with a more general request...")
-                params_fallback = {'type': 'swap'}
-                ohlcv = bybit.fetch_ohlcv(symbol, timeframe, limit=fetch_limit, params=params_fallback)
+        if not ohlcv and timeframe.upper() == '1D':
+            logging.warning(f"Initial 1D fetch for {symbol} failed. Retrying with a more general request...")
+            params_fallback = {'type': 'swap'}
+            ohlcv = bybit.fetch_ohlcv(symbol, timeframe, limit=fetch_limit, params=params_fallback)
 
         if not ohlcv:
             logging.warning(f"No data returned for {symbol} on {timeframe} timeframe after all attempts.")
@@ -106,12 +97,15 @@ async def send_telegram_message(message: str):
         logging.error(f"Failed to send Telegram message: {e}")
 
 # --- Data Preparation ---
-def _prep_live_data(symbol: str) -> pd.DataFrame | None:
+# In live_bot.py
+
+def _prep_live_data(symbol: str, bybit: ccxt.Exchange) -> pd.DataFrame | None:
     """
     Prepares the live data DataFrame. This version uses a precise historical
     5-minute candle fetch for the 30-day structural trend.
     """
     # --- 1. Fetch ESSENTIAL intraday data ---
+    # We now use the 'bybit' object that was passed into the function
     df5 = fetch_bybit_data(symbol, cfg.BOT_TIMEFRAME, limit=1000)
     df4h = fetch_bybit_data(symbol, "4h", limit=300)
     df_atr_tf = fetch_bybit_data(symbol, cfg.ATR_TIMEFRAME, limit=200)
@@ -141,16 +135,14 @@ def _prep_live_data(symbol: str) -> pd.DataFrame | None:
     # --- 4. PRECISE fetch for Structural Trend ---
     ret_30d = float('nan') # Default to NaN
     try:
-        # Get the target timestamp for 30 days ago
         target_timestamp = pd.Timestamp.now(tz='UTC') - pd.Timedelta(days=cfg.STRUCTURAL_TREND_DAYS)
         since_ms = int(target_timestamp.timestamp() * 1000)
         
-        # Fetch a small window of 5-minute candles around our target time
+        # This line will now work because 'bybit' is passed in as an argument
         historical_candles = bybit.fetch_ohlcv(symbol, '5m', since=since_ms, limit=5, params={'type': 'swap'})
         
         if historical_candles and len(historical_candles) > 0:
-            # The first candle in the list is the one closest to our target time
-            price_30_days_ago = historical_candles[0][4] # Index 4 is the 'close' price
+            price_30_days_ago = historical_candles[0][4]
             current_price = df5['close'].iloc[-1]
             ret_30d = (current_price / price_30_days_ago) - 1
         else:
@@ -159,7 +151,6 @@ def _prep_live_data(symbol: str) -> pd.DataFrame | None:
     except Exception as e:
         logging.error(f"Error during precise 30-day return calculation for {symbol}: {e}")
     
-    # Add the calculated return to the DataFrame. It will be the same value for all rows.
     df5['ret_30d'] = ret_30d
 
     # --- 5. Calculate final look-back columns ---
@@ -173,16 +164,22 @@ def _prep_live_data(symbol: str) -> pd.DataFrame | None:
 
 # In live_bot.py
 
+# In live_bot.py
+
 def check_for_signals():
     """The main job function that checks all symbols for trade signals."""
     logging.info("--- Starting new signal check cycle ---")
     
     cooldowns = load_cooldowns()
+    
+    # Create ccxt instance once per cycle
+    bybit = ccxt.bybit()
 
-    # --- NEW: Fetch BTC data once per cycle ---
+    # Fetch BTC data once per cycle
     btc_df = None
     if cfg.SHOW_BTC_FAST_FILTER_CONTEXT and cfg.BTC_FAST_FILTER_ENABLED:
-        btc_df = fetch_bybit_data("BTCUSDT", cfg.BTC_FAST_TIMEFRAME, limit=100)
+        # We need to pass the bybit object to this fetcher too
+        btc_df = fetch_bybit_data("BTCUSDT", cfg.BTC_FAST_TIMEFRAME, bybit, limit=100)
         if btc_df is not None:
             btc_df['ema'] = ta.ema(btc_df['close'], cfg.BTC_FAST_EMA_PERIOD)
 
@@ -201,10 +198,15 @@ def check_for_signals():
 
         logging.info(f"Checking {symbol}...")
         
-        df_prep = _prep_live_data(symbol)
+        # --- THIS IS THE KEY CHANGE ---
+        # Pass the 'bybit' object into the prep function
+        df_prep = _prep_live_data(symbol, bybit)
+        
         if df_prep is None or df_prep.empty:
             logging.warning(f"Could not prepare data for {symbol}, skipping.")
             continue
+        
+        # ... (The rest of the function remains exactly the same) ...
             
         last_candle = df_prep.iloc[-2]
         
