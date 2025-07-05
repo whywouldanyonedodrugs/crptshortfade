@@ -9,7 +9,7 @@ from pathlib import Path
 TELEGRAM_BOT_TOKEN    = "7770157032:AAGO-J_Mb8Oxg3i6xQmWTj3rM3JMO5MMscQ"  # Replace with your Bot Token
 TELEGRAM_CHAT_ID      = "2133130545"    # Replace with your Chat ID
 BOT_TIMEFRAME         = "5m"                       # Timeframe for the bot to check for signals
-BOT_SCHEDULE_MINUTES  = 5                          # How often to check for new signals
+BOT_SCHEDULE_MINUTES  = 1                          # How often to check for new signals
 
 # In config.py
 DEBUG_SYMBOL = "HUSDT"  # Set to a symbol to get detailed logs, or None to disable
