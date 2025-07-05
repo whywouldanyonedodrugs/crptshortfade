@@ -12,6 +12,9 @@ BOT_TIMEFRAME         = "5m"                       # Timeframe for the bot to ch
 BOT_SCHEDULE_MINUTES  = 5                          # How often to check for new signals
 
 # In config.py
+DEBUG_SYMBOL = "GIGAUSDT"  # Set to a symbol to get detailed logs, or None to disable
+
+# In config.py
 SIGNAL_COOLDOWN_MINUTES = 60 # Cooldown per symbol after a signal is sent
 
 # ─── Portfolio ───────────────────────────────────────────────────────
