@@ -107,6 +107,8 @@ def _prep_live_data(symbol: str) -> pd.DataFrame | None:
     df5["close_slowdown_ago"] = df5["close"].shift(SLOWDOWN_BAR_COUNT)
     return df5.dropna()
 
+# In live_bot.py
+
 def check_for_signals():
     """The main job function that checks all symbols for trade signals."""
     logging.info("--- Starting new signal check cycle ---")
@@ -142,16 +144,37 @@ def check_for_signals():
         rsi_col = f"rsi_{cfg.RSI_TIMEFRAME}"
         adx_col = f"adx_{cfg.ADX_TIMEFRAME}"
 
+        # --- Calculate all strategy conditions ---
         boom = (last_candle["close"] - last_candle["close_boom_ago"]) / last_candle["close_boom_ago"] >= cfg.PRICE_BOOM_PCT
         slow = (last_candle["close"] - last_candle["close_slowdown_ago"]) / last_candle["close_slowdown_ago"] <= cfg.PRICE_SLOWDOWN_PCT
         ema_down = last_candle["ema_fast_4h"] < last_candle["ema_slow_4h"]
         rsi_ok = cfg.RSI_ENTRY_MIN <= last_candle[rsi_col] <= cfg.RSI_ENTRY_MAX
         adx_ok = not cfg.ADX_FILTER_ENABLED or last_candle[adx_col] > cfg.ADX_MIN_LEVEL
         
+        # --- NEW DEBUG BLOCK ---
+        # If the current symbol matches our debug symbol, print detailed information.
+        if cfg.DEBUG_SYMBOL and symbol.upper() == cfg.DEBUG_SYMBOL.upper():
+            logging.info(f"--- DEBUGGING {symbol} at {last_candle.name} ---")
+            logging.info(f"  Close Price: {last_candle['close']:.4f}")
+            logging.info(f"  Boom Lookback Price: {last_candle['close_boom_ago']:.4f}")
+            logging.info(f"  Slowdown Lookback Price: {last_candle['close_slowdown_ago']:.4f}")
+            logging.info(f"  EMA Fast (4h): {last_candle['ema_fast_4h']:.4f}")
+            logging.info(f"  EMA Slow (4h): {last_candle['ema_slow_4h']:.4f}")
+            logging.info(f"  RSI: {last_candle[rsi_col]:.2f}")
+            logging.info(f"  ADX: {last_candle[adx_col]:.2f}")
+            logging.info("  --- Conditions ---")
+            logging.info(f"  [Boom >= {cfg.PRICE_BOOM_PCT*100}%]: {boom}")
+            logging.info(f"  [Slow <= {cfg.PRICE_SLOWDOWN_PCT*100}%]: {slow}")
+            logging.info(f"  [EMA Fast < EMA Slow]: {ema_down}")
+            logging.info(f"  [RSI between {cfg.RSI_ENTRY_MIN}-{cfg.RSI_ENTRY_MAX}]: {rsi_ok}")
+            logging.info(f"  [ADX > {cfg.ADX_MIN_LEVEL}]: {adx_ok}")
+            logging.info("------------------------------------")
+        # --- END OF DEBUG BLOCK ---
+
         is_signal = all([boom, slow, ema_down, rsi_ok, adx_ok])
 
-        # --- FIX: THIS ENTIRE BLOCK IS NOW CORRECTLY INDENTED INSIDE THE 'for' LOOP ---
         if is_signal:
+            # ... (The message sending logic remains the same) ...
             logging.info(f"!!! SIGNAL DETECTED for {symbol} !!!")
             
             entry_price = last_candle['close']
@@ -161,15 +184,17 @@ def check_for_signals():
             trail_distance = cfg.TRAIL_ATR_MULT * atr_value
 
             message = (
-                f"SIG: ${symbol}*\n\n"
-                f"**ENTRY:** `{entry_price:.4f}`\n"
-                f"**SL:** `{stop_loss:.4f}`\n\n"
-                f"---\n"
-                f"**TP1:** `{partial_tp_price:.4f}`\n"
-                f"*To close {cfg.PARTIAL_CLOSE_PCT*100:.0f}% of position)*\n\n"
-                f"**Trail activates at TP1**\n"
-                f"**Trail dist:** `{trail_distance:.5f}` ({cfg.TRAIL_ATR_MULT}x ATR)\n\n"
-                f"---\n"
+                f"🚨 *New Short Signal: ${symbol}*\n\n"
+                f"--- *Stage 1: Entry Plan* ---\n"
+                f"**Entry Price:** `{entry_price:.4f}`\n"
+                f"**Stop Loss (Initial):** `{stop_loss:.4f}`\n\n"
+                f"--- *Stage 2: Trade Management* ---\n"
+                f"**Partial TP (TP1):** `{partial_tp_price:.4f}`\n"
+                f"*(At this price, close {cfg.PARTIAL_CLOSE_PCT*100:.0f}% of position)*\n\n"
+                f"**Trailing Stop Activates at TP1**\n"
+                f"**Trail Distance:** `{trail_distance:.5f}` ({cfg.TRAIL_ATR_MULT}x ATR)\n\n"
+                f"_*Remainder of position is managed by this trailing stop.*_\n\n"
+                f"--- *Signal Details* ---\n"
                 f"- Time: `{last_candle.name.strftime('%Y-%m-%d %H:%M')}`\n"
                 f"- RSI ({cfg.RSI_TIMEFRAME}): `{last_candle[rsi_col]:.2f}`\n"
                 f"- ADX ({cfg.ADX_TIMEFRAME}): `{last_candle[adx_col]:.2f}`\n"
@@ -183,7 +208,6 @@ def check_for_signals():
             save_cooldowns(cooldowns)
             logging.info(f"Placed {symbol} in cooldown until {cooldown_end.strftime('%Y-%m-%d %H:%M:%S UTC')}")
         
-        # --- FIX: THIS LINE IS NOW CORRECTLY INDENTED INSIDE THE 'for' LOOP ---
         time.sleep(2)
 
 # --- Main Execution ---
