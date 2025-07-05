@@ -46,6 +46,11 @@ def save_cooldowns(cooldowns: dict):
 
 # In live_bot.py
 
+
+
+
+
+
 def fetch_bybit_data(symbol: str, timeframe: str, bybit: ccxt.Exchange, limit: int = 200) -> pd.DataFrame | None:
     """
     Fetches OHLCV data for Bybit perpetuals using a pre-initialized client.
@@ -83,6 +88,10 @@ def fetch_bybit_data(symbol: str, timeframe: str, bybit: ccxt.Exchange, limit: i
 
 
 
+
+
+
+
 # --- Telegram Notifier ---
 async def send_telegram_message(message: str):
     try:
@@ -96,8 +105,15 @@ async def send_telegram_message(message: str):
     except Exception as e:
         logging.error(f"Failed to send Telegram message: {e}")
 
+
+
+
+
+
+
+
+
 # --- Data Preparation ---
-# In live_bot.py
 
 def _prep_live_data(symbol: str, bybit: ccxt.Exchange) -> pd.DataFrame | None:
     """
@@ -105,12 +121,12 @@ def _prep_live_data(symbol: str, bybit: ccxt.Exchange) -> pd.DataFrame | None:
     5-minute candle fetch for the 30-day structural trend.
     """
     # --- 1. Fetch ESSENTIAL intraday data ---
-    # We now use the 'bybit' object that was passed into the function
-    df5 = fetch_bybit_data(symbol, cfg.BOT_TIMEFRAME, limit=1000)
-    df4h = fetch_bybit_data(symbol, "4h", limit=300)
-    df_atr_tf = fetch_bybit_data(symbol, cfg.ATR_TIMEFRAME, limit=200)
-    df_rsi_tf = fetch_bybit_data(symbol, cfg.RSI_TIMEFRAME, limit=200)
-    df_adx_tf = fetch_bybit_data(symbol, cfg.ADX_TIMEFRAME, limit=200)
+    # --- FIX: Pass the 'bybit' object to each call ---
+    df5 = fetch_bybit_data(symbol, cfg.BOT_TIMEFRAME, bybit, limit=1000)
+    df4h = fetch_bybit_data(symbol, "4h", bybit, limit=300)
+    df_atr_tf = fetch_bybit_data(symbol, cfg.ATR_TIMEFRAME, bybit, limit=200)
+    df_rsi_tf = fetch_bybit_data(symbol, cfg.RSI_TIMEFRAME, bybit, limit=200)
+    df_adx_tf = fetch_bybit_data(symbol, cfg.ADX_TIMEFRAME, bybit, limit=200)
 
     if any(df is None for df in [df5, df4h, df_atr_tf, df_rsi_tf, df_adx_tf]):
         logging.warning(f"Could not fetch one or more essential intraday timeframes for {symbol}. Skipping.")
@@ -138,7 +154,6 @@ def _prep_live_data(symbol: str, bybit: ccxt.Exchange) -> pd.DataFrame | None:
         target_timestamp = pd.Timestamp.now(tz='UTC') - pd.Timedelta(days=cfg.STRUCTURAL_TREND_DAYS)
         since_ms = int(target_timestamp.timestamp() * 1000)
         
-        # This line will now work because 'bybit' is passed in as an argument
         historical_candles = bybit.fetch_ohlcv(symbol, '5m', since=since_ms, limit=5, params={'type': 'swap'})
         
         if historical_candles and len(historical_candles) > 0:
@@ -162,9 +177,12 @@ def _prep_live_data(symbol: str, bybit: ccxt.Exchange) -> pd.DataFrame | None:
     
     return df5.dropna(subset=['close_boom_ago', 'close_slowdown_ago'])
 
-# In live_bot.py
 
-# In live_bot.py
+
+
+
+
+
 
 def check_for_signals():
     """The main job function that checks all symbols for trade signals."""
