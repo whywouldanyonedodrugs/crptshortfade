@@ -15,7 +15,15 @@ BOT_SCHEDULE_MINUTES  = 5                          # How often to check for new 
 DEBUG_SYMBOL = "HUSDT"  # Set to a symbol to get detailed logs, or None to disable
 
 # In config.py
-SIGNAL_COOLDOWN_MINUTES = 60 # Cooldown per symbol after a signal is sent
+SIGNAL_COOLDOWN_MINUTES = 30 # Cooldown per symbol after a signal is sent
+
+# --- Contextual Filters to INCLUDE in the Alert Message ---
+# Set these to True to see their status in the Telegram alert.
+SHOW_EMA_TREND_CONTEXT    = True
+SHOW_RSI_CONTEXT          = True
+SHOW_ADX_CONTEXT          = True
+SHOW_STRUCTURAL_CONTEXT   = True
+SHOW_BTC_FAST_FILTER_CONTEXT = True # We will now use this!
 
 # ─── Portfolio ───────────────────────────────────────────────────────
 INITIAL_CAPITAL       = 1_000.0       # USD starting equity
