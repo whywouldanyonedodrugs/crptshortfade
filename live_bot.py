@@ -46,31 +46,35 @@ def save_cooldowns(cooldowns: dict):
 
 def fetch_bybit_data(symbol: str, timeframe: str, limit: int = 200) -> pd.DataFrame | None:
     """
-    Fetches OHLCV data for Bybit perpetuals. This version is more flexible
-    to handle different API behaviors for daily vs. intraday timeframes.
+    Fetches OHLCV data for Bybit perpetuals. This version is designed to be
+    as robust as possible for all symbols and timeframes.
     """
     try:
         bybit = ccxt.bybit()
-        bybit.load_markets()
-        market = bybit.market(symbol)
+        # No need to load markets every time, ccxt handles it implicitly.
         
-        # --- NEW FLEXIBLE LOGIC ---
-        # Start with base parameters
-        params = {'type': 'swap'}
+        # Bybit's API for historical data can be sensitive.
+        # The most reliable method is often to specify the market type
+        # and let ccxt handle the default limit for historical pulls.
+        params = {'type': 'swap', 'subType': 'linear'}
         
-        # Only add the 'subType' for non-daily timeframes, as it can sometimes
-        # cause issues with fetching historical daily data for some pairs.
-        if timeframe.upper() != '1D':
-            params['subType'] = 'linear'
-
-        # Use the provided limit for intraday, but let ccxt use its default for daily.
+        # Let ccxt manage the limit for historical (1D) data by setting it to None.
+        # For intraday, we use the specified limit.
         fetch_limit = limit if timeframe.upper() != '1D' else None
-        
+
         # Fetch OHLCV data
         ohlcv = bybit.fetch_ohlcv(symbol, timeframe, limit=fetch_limit, params=params)
         
         if not ohlcv:
-            logging.warning(f"No data returned for {symbol} on {timeframe} timeframe")
+            # If the first attempt fails, try a more general request without subType for 1D.
+            # This can sometimes help with older or differently categorized symbols.
+            if timeframe.upper() == '1D':
+                logging.warning(f"Initial 1D fetch for {symbol} failed. Retrying with a more general request...")
+                params_fallback = {'type': 'swap'}
+                ohlcv = bybit.fetch_ohlcv(symbol, timeframe, limit=fetch_limit, params=params_fallback)
+
+        if not ohlcv:
+            logging.warning(f"No data returned for {symbol} on {timeframe} timeframe after all attempts.")
             return None
 
         df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
