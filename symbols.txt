@@ -72,10 +72,8 @@ SOLOUSDT            23.67         71.43      14
 JOEUSDT             23.41        100.00       2
 SCRUSDT             22.45        100.00       2
 1000BONKUSDT        22.40        100.00       2
-LEVERUSDT           22.38        100.00       2
 AVAUSDT             22.31        100.00       2
 HYPEUSDT            22.30        100.00       2
-DARKUSDT            22.13        100.00       2
 FLMUSDT             21.90        100.00       2
 BAKEUSDT            21.82        100.00       2
 GMTUSDT             21.79        100.00       2
