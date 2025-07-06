@@ -247,6 +247,15 @@ def check_for_signals():
             partial_tp_price = entry_price - cfg.PARTIAL_TP_ATR_MULT * atr_value
             trail_distance = cfg.TRAIL_ATR_MULT * atr_value
 
+            # ─── NEW: compute ATR % of price and flag range ───────────────
+            if pd.notna(atr_value) and atr_value > 0:
+                atr_pct = atr_value / entry_price
+                in_range = (atr_pct >= cfg.EXEC_MIN_ATR_PCT and
+                            (cfg.EXEC_MAX_ATR_PCT is None or atr_pct <= cfg.EXEC_MAX_ATR_PCT))
+            else:
+                atr_pct, in_range = float('nan'), False
+            # --------------------------------------------------------------
+            
             context_lines = []
             if cfg.SHOW_EMA_TREND_CONTEXT:
                 ema_fast = last_candle.get('ema_fast_4h', float('nan'))
@@ -257,6 +266,16 @@ def check_for_signals():
                     context_lines.append(f"{icon} *EMA Trend (4h):* Fast < Slow? `{ema_trend_ok}`")
                 else:
                     context_lines.append("⚠️ *EMA Trend (4h):* `Data N/A`")
+
+
+            if pd.notna(atr_pct):
+                icon = "✅" if in_range else "❌"
+                context_lines.append(f"{icon} *ATR %:* `{atr_pct:.2%}` (In range? `{in_range}`)")
+            else:
+                context_lines.append("⚠️ *ATR %:* `Data N/A`")
+    
+
+            
             if cfg.SHOW_RSI_CONTEXT:
                 rsi_val = last_candle.get(rsi_col, float('nan'))
                 if pd.notna(rsi_val):
