@@ -87,14 +87,19 @@ BTC_FAST_FILTER_ENABLED   = True   # Use the short-term trend filter
 BTC_FAST_TIMEFRAME        = "4h"
 BTC_FAST_EMA_PERIOD       = 20
 
-BTC_SLOW_FILTER_ENABLED   = False  # Use the long-term trend filter
+BTC_SLOW_FILTER_ENABLED   = True  # Use the long-term trend filter
 BTC_SLOW_TIMEFRAME        = "1D"
-BTC_SLOW_EMA_PERIOD       = 50
+BTC_SLOW_EMA_PERIOD       = 30
 # ─── Dynamic exit & risk management ──────────────────────────────────
 PARTIAL_TP_ENABLED    = True
 PARTIAL_TP_ATR_MULT   = 1.0
 PARTIAL_CLOSE_PCT     = 0.70
-TRAIL_ATR_MULT        = 1.5
+TRAIL_ATR_MULT        = 0.8
+
+# ─── Execution-time ATR filter ───────────────────────────────────────
+EXEC_ATR_FILTER_ENABLED = True   # turn ON/OFF
+EXEC_MIN_ATR_PCT        = 0.010   # 0.2 % of price (min bound)
+EXEC_MAX_ATR_PCT        = 0.035   # 1.0 % of price (max bound, set to None to disable)
 
 # --- MODIFICATION START (Quick Fix) ---
 # If PARTIAL_TP_ENABLED is False, this setting determines the exit logic.
