@@ -301,7 +301,7 @@ def check_for_signals():
             context_message = "\n".join(context_lines)
 
             message = (
-                f"🟥 SHORT 🟥: ${symbol}*\n\n"
+                f"*🟥 SHORT 🟥: {symbol}*\n\n"          
                 f"**ENTRY:** `{entry_price:.4f}`\n"
                 f"**SL:** `{stop_loss:.4f}`\n"
                 f"**TP1:** `{partial_tp_price:.4f}`\n"
