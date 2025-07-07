@@ -301,15 +301,13 @@ def check_for_signals():
             context_message = "\n".join(context_lines)
 
             message = (
-                f"🎯 *New Short Opportunity: ${symbol}*\n\n"
-                f"--- *Core Setup (Boom & Slowdown)* ---\n"
-                f"**Entry Price:** `{entry_price:.4f}`\n"
-                f"**Stop Loss:** `{stop_loss:.4f}`\n"
-                f"**Partial TP (TP1):** `{partial_tp_price:.4f}`\n"
-                f"**Trail Distance:** `{trail_distance:.5f}`\n\n"
-                f"--- *Contextual Analysis* ---\n"
+                f"🟥 SHORT 🟥: ${symbol}*\n\n"
+                f"**ENTRY:** `{entry_price:.4f}`\n"
+                f"**SL:** `{stop_loss:.4f}`\n"
+                f"**TP1:** `{partial_tp_price:.4f}`\n"
+                f"**Trail:** `{trail_distance:.5f}`\n\n"
+                f"--- *Context* ---\n"
                 f"{context_message}\n\n"
-                f"_*Discretionary decision required._"
             )
             
             asyncio.run(send_telegram_message(message))
