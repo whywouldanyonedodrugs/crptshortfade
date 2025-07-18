@@ -98,11 +98,17 @@ def check_for_signals():
     logging.info("--- Starting new signal check cycle ---")
     
     cooldowns = load_cooldowns()
-    bybit = ccxt.bybit({'options': {'defaultType': 'swap'}})
+    try:
+        bybit = ccxt.bybit({'options': {'defaultType': 'swap'}})
+        bybit.load_markets()
+    except Exception as e:
+        logging.error(f"Failed to initialize exchange or load markets: {e}")
+        return # Exit the cycle if we can't connect
 
     # --- Pre-fetch BTC data for context ---
     btc_is_strong = False
     if cfg.BTC_SLOW_FILTER_ENABLED:
+        # This call will now succeed
         btc_df = fetch_bybit_data("BTCUSDT", cfg.BTC_SLOW_TIMEFRAME, bybit)
         if btc_df is not None and not btc_df.empty:
             btc_df['ema'] = ta.ema(btc_df['close'], cfg.BTC_SLOW_EMA_PERIOD)
