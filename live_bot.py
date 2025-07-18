@@ -47,9 +47,10 @@ def save_cooldowns(cooldowns: dict):
 
 # live_bot.py
 
+
 def fetch_bybit_data(symbol: str, timeframe: str, bybit: ccxt.Exchange, limit: int = 300) -> pd.DataFrame | None:
     """
-    Fetches OHLCV data now that the ccxt instance is correctly initialized.
+    Fetches OHLCV data now that the ccxt instance is correctly initialized and markets are loaded.
     It correctly handles the 'limit' parameter for the 1D timeframe.
     """
     try:
@@ -70,19 +71,6 @@ def fetch_bybit_data(symbol: str, timeframe: str, bybit: ccxt.Exchange, limit: i
     except Exception as e:
         logging.error(f"An unexpected error occurred fetching data for {symbol} on {timeframe}: {e}")
         return None
-        
-# --- Telegram Notifier ---
-async def send_telegram_message(message: str):
-    try:
-        bot = telegram.Bot(token=cfg.TELEGRAM_BOT_TOKEN)
-        await bot.send_message(
-            chat_id=cfg.TELEGRAM_CHAT_ID,
-            text=message,
-            parse_mode='Markdown'
-        )
-        logging.info("Successfully sent Telegram notification.")
-    except Exception as e:
-        logging.error(f"Failed to send Telegram message: {e}")
 
 # --- Data Preparation ---
 def _prep_live_data(symbol: str, bybit: ccxt.Exchange) -> pd.DataFrame | None:
