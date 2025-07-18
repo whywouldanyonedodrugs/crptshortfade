@@ -1,4 +1,4 @@
-# live_bot.py (FINAL DIAGNOSTIC VERSION)
+# live_bot.py (UPDATED VERSION)
 
 import time
 import logging
@@ -9,7 +9,7 @@ import telegram
 import asyncio
 import json
 from pathlib import Path
-import traceback # <--- IMPORT THE TRACEBACK MODULE
+import traceback
 
 import config as cfg
 import indicators as ta
@@ -28,37 +28,58 @@ logging.basicConfig(
 COOLDOWN_FILE = Path("signal_cooldowns.json")
 
 def load_cooldowns() -> dict:
-    if not COOLDOWN_FILE.exists(): return {}
+    if not COOLDOWN_FILE.exists():
+        return {}
     try:
-        with open(COOLDOWN_FILE, 'r') as f: return json.load(f)
-    except (json.JSONDecodeError, FileNotFoundError): return {}
+        with open(COOLDOWN_FILE, 'r') as f:
+            return json.load(f)
+    except (json.JSONDecodeError, FileNotFoundError):
+        return {}
 
 def save_cooldowns(cooldowns: dict):
-    with open(COOLDOWN_FILE, 'w') as f: json.dump(cooldowns, f, indent=4)
+    with open(COOLDOWN_FILE, 'w') as f:
+        json.dump(cooldowns, f, indent=4)
 
 # --- CCXT Data Fetcher ---
-def fetch_bybit_data(symbol: str, timeframe: str, bybit: ccxt.Exchange, limit: int = 300) -> pd.DataFrame | None:
-    try:
-        fetch_limit = None if timeframe.upper() == '1D' else limit
-        ohlcv = bybit.fetch_ohlcv(symbol, timeframe, limit=fetch_limit)
+def fetch_bybit_data(
+    symbol: str,
+    timeframe: str,
+    bybit: ccxt.Exchange,
+    limit: int = 300
+) -> pd.DataFrame | None:
+    """Fetches OHLCV from Bybit, handling pagination & errors.
 
+    Always passes `since=None, limit=limit` and lowercases the timeframe.
+    """
+    tf = timeframe.lower()
+    try:
+        logging.info(f"Fetching {symbol} on {tf}...")
+        ohlcv = bybit.fetch_ohlcv(
+            symbol=symbol,
+            timeframe=tf,
+            since=None,
+            limit=limit
+        )
         if not ohlcv:
-            logging.warning(f"No data returned for {symbol} on {timeframe}.")
+            logging.warning(f"No data returned for {symbol} on {tf}.")
             return None
 
-        df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+        df = pd.DataFrame(
+            ohlcv,
+            columns=['timestamp', 'open', 'high', 'low', 'close', 'volume']
+        )
         df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms', utc=True)
         df.set_index('timestamp', inplace=True)
+        logging.info(f"Retrieved {len(df)} bars for {symbol} on {tf}.")
         return df
-    except Exception: # <-- CATCH GENERIC EXCEPTION
-        # --- THIS IS THE CRITICAL CHANGE ---
-        logging.error(f"An unexpected error occurred fetching data for {symbol} on {timeframe}:")
-        logging.error(traceback.format_exc()) # <-- PRINT THE FULL TRACEBACK
+
+    except Exception:
+        logging.error(f"An unexpected error occurred fetching data for {symbol} on {tf}:")
+        logging.error(traceback.format_exc())
         return None
 
 # --- Telegram Notifier ---
 async def send_telegram_message(message: str):
-    # This function is fine, no changes needed here.
     try:
         bot = telegram.Bot(token=cfg.TELEGRAM_BOT_TOKEN)
         await bot.send_message(
@@ -71,15 +92,13 @@ async def send_telegram_message(message: str):
         logging.error("Failed to send Telegram message:")
         logging.error(traceback.format_exc())
 
-
 # --- Data Preparation ---
 def _prep_live_data(symbol: str, bybit: ccxt.Exchange) -> pd.DataFrame | None:
-    # This function is fine, no changes needed here.
     df5 = fetch_bybit_data(symbol, cfg.BOT_TIMEFRAME, bybit, limit=500)
     df_atr_tf = fetch_bybit_data(symbol, cfg.ATR_TIMEFRAME, bybit)
     df_rsi_tf = fetch_bybit_data(symbol, cfg.RSI_TIMEFRAME, bybit)
 
-    if any(df is None for df in [df5, df_atr_tf, df_rsi_tf]):
+    if any(d is None for d in [df5, df_atr_tf, df_rsi_tf]):
         logging.warning(f"Could not fetch one or more essential timeframes for {symbol}. Skipping.")
         return None
 
@@ -91,9 +110,8 @@ def _prep_live_data(symbol: str, bybit: ccxt.Exchange) -> pd.DataFrame | None:
     SLOWDOWN_BAR_COUNT = BARS_PER_HOUR * cfg.PRICE_SLOWDOWN_PERIOD_H
     df5["close_boom_ago"] = df5["close"].shift(BOOM_BAR_COUNT)
     df5["close_slowdown_ago"] = df5["close"].shift(SLOWDOWN_BAR_COUNT)
-    
-    return df5.dropna(subset=['close_boom_ago', f"rsi_{cfg.RSI_TIMEFRAME}", f"atr_{cfg.ATR_TIMEFRAME}"])
 
+    return df5.dropna(subset=['close_boom_ago', f"rsi_{cfg.RSI_TIMEFRAME}", f"atr_{cfg.ATR_TIMEFRAME}"])
 
 # --- Main Signal Checking Logic ---
 def check_for_signals():
@@ -117,9 +135,7 @@ def check_for_signals():
             btc_last = btc_df.iloc[-1]
             if pd.notna(btc_last.get('close')) and pd.notna(btc_last.get('ema')):
                 btc_is_strong = btc_last['close'] > btc_last['ema']
-    
-    # ... The rest of the function remains the same ...
-    # (No changes needed in the symbol loop)
+
     try:
         with open(cfg.SYMBOLS_FILE, 'r') as fh:
             symbols = [line.split()[0].strip().upper() for line in fh if line.strip() and not line.strip().startswith("#")]
@@ -200,7 +216,6 @@ def check_for_signals():
         cooldowns[symbol] = cooldown_end.isoformat()
         save_cooldowns(cooldowns)
         logging.info(f"Sent alert for {symbol}. Cooldown until {cooldown_end.strftime('%Y-%m-%d %H:%M:%S UTC')}")
-
         time.sleep(1)
 
 # --- Main Execution ---
