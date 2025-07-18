@@ -117,7 +117,7 @@ def check_for_signals():
     logging.info("--- Starting new signal check cycle ---")
     
     cooldowns = load_cooldowns()
-    bybit = ccxt.bybit()
+    bybit = ccxt.bybit({'options': {'defaultType': 'swap'}})
 
     # --- Pre-fetch BTC data for context ---
     btc_is_strong = False
