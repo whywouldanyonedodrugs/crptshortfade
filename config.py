@@ -47,6 +47,12 @@ SL_ATR_MULT              = 3.0
 PARTIAL_TP_ATR_MULT      = 1.0
 TRAIL_ATR_MULT_FINAL     = 1
 
+# ─── Trade Management / Exit Parameters (For Display) ──────────
+SL_ATR_MULT              = 3.0       # Stop-Loss = 3 * ATR
+PARTIAL_TP_ATR_MULT      = 1.0       # Partial Take-Profit = 1 * ATR
+TP2_ATR_MULT             = 6.0       # <--- ADD THIS LINE. Informational target for the runner.
+TRAIL_ATR_MULT_FINAL     = 1         # Trailing Stop Distance = 1.5 * ATR
+
 # ─── Indicator Calculation Parameters ──────────────────────────
 RSI_TIMEFRAME = "1h"
 RSI_PERIOD    = 14
