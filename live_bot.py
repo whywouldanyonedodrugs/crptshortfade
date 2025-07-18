@@ -45,20 +45,45 @@ def save_cooldowns(cooldowns: dict):
 
 # --- CCXT Data Fetcher ---
 def fetch_bybit_data(symbol: str, timeframe: str, bybit: ccxt.Exchange, limit: int = 300) -> pd.DataFrame | None:
+    """
+    Fetches OHLCV data for Bybit perpetuals with a robust three-stage fallback system.
+    """
     try:
-        params = {'type': 'swap'}
-        ohlcv = bybit.fetch_ohlcv(symbol, timeframe, limit=limit, params=params)
-        if not ohlcv:
-            logging.warning(f"No data returned for {symbol} on {timeframe}.")
-            return None
-        df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
-        df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms', utc=True)
-        df.set_index('timestamp', inplace=True)
-        return df
-    except Exception as e:
-        logging.error(f"Error fetching data for {symbol} on {timeframe}: {e}")
+        # --- Attempt 1: Specific Linear Swap (Ideal for intraday) ---
+        params_v1 = {'type': 'swap', 'subType': 'linear'}
+        ohlcv = bybit.fetch_ohlcv(symbol, timeframe, limit=limit, params=params_v1)
+        if ohlcv:
+            df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+            df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms', utc=True)
+            df.set_index('timestamp', inplace=True)
+            return df
+
+        # --- Attempt 2: General Swap (Fallback for 1D) ---
+        logging.warning(f"Specific fetch failed for {symbol} ({timeframe}). Retrying with general swap params...")
+        params_v2 = {'type': 'swap'}
+        ohlcv = bybit.fetch_ohlcv(symbol, timeframe, limit=limit, params=params_v2)
+        if ohlcv:
+            df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+            df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms', utc=True)
+            df.set_index('timestamp', inplace=True)
+            return df
+
+        # --- Attempt 3: No Params (Final fallback, lets ccxt decide) ---
+        logging.warning(f"General swap fetch failed for {symbol} ({timeframe}). Retrying with no params...")
+        ohlcv = bybit.fetch_ohlcv(symbol, timeframe, limit=limit)
+        if ohlcv:
+            df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+            df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms', utc=True)
+            df.set_index('timestamp', inplace=True)
+            return df
+
+        # --- If all attempts fail ---
+        logging.error(f"All attempts to fetch data for {symbol} ({timeframe}) failed.")
         return None
 
+    except Exception as e:
+        logging.error(f"An unexpected error occurred fetching data for {symbol} on {timeframe}: {e}")
+        return None
 # --- Telegram Notifier ---
 async def send_telegram_message(message: str):
     try:
