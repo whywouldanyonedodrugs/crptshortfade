@@ -161,7 +161,7 @@ def check_for_signals():
             f"{'✅' if champion_btc_ok else '❌'} *BTC Strong?* (`{btc_is_strong}`)"
         ]
         filter_checklist = "\n".join(filter_lines)
-
+        
         # Trade Parameters
         entry_price = last_candle['close']
         atr_value = last_candle.get(f"atr_{cfg.ATR_TIMEFRAME}", float('nan'))
@@ -170,8 +170,10 @@ def check_for_signals():
             logging.warning(f"ATR value is NaN for {symbol}. Cannot calculate trade parameters.")
             continue
 
+        # Calculate all price levels
         stop_loss = entry_price + cfg.SL_ATR_MULT * atr_value
         partial_tp = entry_price - cfg.PARTIAL_TP_ATR_MULT * atr_value
+        tp2_price = entry_price - cfg.TP2_ATR_MULT * atr_value # <-- Calculate TP2
         trail_dist = cfg.TRAIL_ATR_MULT_FINAL * atr_value
 
         message = (
@@ -180,11 +182,13 @@ def check_for_signals():
             f"**Time:** `{last_candle.name.strftime('%Y-%m-%d %H:%M')}` UTC\n\n"
             f"--- *Champion Filter Checklist* ---\n"
             f"{filter_checklist}\n\n"
-            f"--- *Trade Parameters (If Taken)* ---\n"
+            f"--- *Actionable Trade Parameters* ---\n"
             f"**Entry Price:** `{entry_price:.4f}`\n"
             f"**1. Stop-Loss (SL):** `{stop_loss:.4f}` ({cfg.SL_ATR_MULT} ATR)\n"
             f"**2. Partial Take-Profit (TP1):** `{partial_tp:.4f}` ({cfg.PARTIAL_TP_ATR_MULT} ATR)\n"
-            f"**3. Trailing Stop Distance:** `{trail_dist:.5f}` (Set after TP1 is hit)\n"
+            f"**3. Trailing Stop Distance:** `{trail_dist:.5f}` (Set after TP1 is hit)\n\n"
+            f"--- *Informational Target* ---\n"
+            f"**Potential Target (TP2):** `{tp2_price:.4f}` ({cfg.TP2_ATR_MULT} ATR)\n"
         )
         
         asyncio.run(send_telegram_message(message))
