@@ -176,7 +176,7 @@ def check_for_signals():
             f"**Entry Price:** `{entry_price:.4f}`\n"
             f"**1. Stop-Loss (SL):** `{stop_loss:.4f}` ({cfg.SL_ATR_MULT} ATR)\n"
             f"**2. Partial Take-Profit (TP1):** `{partial_tp:.4f}` ({cfg.PARTIAL_TP_ATR_MULT} ATR)\n"
-            f"**3. After TP1 is hit,** the remaining position is trailed with a `{cfg.TRAIL_ATR_MULT_FINAL}` ATR trailing stop.\n"
+            f"**3. Trailing Stop Distance:** `{trail_dist:.5f}` (Set after TP1 is hit)\n"
         )
         
         asyncio.run(send_telegram_message(message))
