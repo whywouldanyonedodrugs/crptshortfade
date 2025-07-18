@@ -5,6 +5,8 @@ Edit only the plain  NAME = value  lines – no complex syntax.
 
 from pathlib import Path
 
+SIGNAL_COOLDOWN_MINUTES = 60 # Cooldown per symbol after a signal is sent
+
 # ─── Live Bot & Notification Settings ────────────────────────────────
 TELEGRAM_BOT_TOKEN    = "7770157032:AAGO-J_Mb8Oxg3i6xQmWTj3rM3JMO5MMscQ"  # Replace with your Bot Token
 TELEGRAM_CHAT_ID      = "2133130545"    # Replace with your Chat ID
@@ -13,21 +15,6 @@ BOT_SCHEDULE_MINUTES  = 1                          # How often to check for new 
 
 # In config.py
 DEBUG_SYMBOL = "HUSDT"  # Set to a symbol to get detailed logs, or None to disable
-
-# In config.py
-SIGNAL_COOLDOWN_MINUTES = 60 # Cooldown per symbol after a signal is sent
-
-# config.py (Updated for Informational Forward-Testing)
-
-from pathlib import Path
-
-# ─── Live Bot & Notification Settings ────────────────────────────────
-TELEGRAM_BOT_TOKEN    = "YOUR_TELEGRAM_BOT_TOKEN"  # Replace with your Bot Token
-TELEGRAM_CHAT_ID      = "YOUR_TELEGRAM_CHAT_ID"    # Replace with your Chat ID
-BOT_TIMEFRAME         = "5m"                       # Timeframe for the bot to check for signals
-BOT_SCHEDULE_MINUTES  = 5                          # How often to check for new signals
-SIGNAL_COOLDOWN_MINUTES = 120 # Cooldown per symbol after a signal is sent (2 hours)
-
 # ─── Data locations ──────────────────────────────────────────────────
 PROJECT_ROOT = Path(__file__).resolve().parent
 SYMBOLS_FILE = PROJECT_ROOT / "symbols.txt"
