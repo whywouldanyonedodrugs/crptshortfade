@@ -1,4 +1,4 @@
-# live_bot.py (Corrected for Informational Forward-Testing)
+# live_bot.py (FINAL DIAGNOSTIC VERSION)
 
 import time
 import logging
@@ -9,17 +9,10 @@ import telegram
 import asyncio
 import json
 from pathlib import Path
+import traceback # <--- IMPORT THE TRACEBACK MODULE
 
 import config as cfg
 import indicators as ta
-
-
-# ==================================================================
-print("--- DIAGNOSTIC CHECK ---")
-print(f"[*] Config file being used: {cfg.__file__}")
-print(f"[*] Token value loaded: {cfg.TELEGRAM_BOT_TOKEN}")
-print("------------------------")
-# ==================================================================
 
 # --- Setup Logging ---
 logging.basicConfig(
@@ -44,19 +37,9 @@ def save_cooldowns(cooldowns: dict):
     with open(COOLDOWN_FILE, 'w') as f: json.dump(cooldowns, f, indent=4)
 
 # --- CCXT Data Fetcher ---
-
-# live_bot.py
-
-
 def fetch_bybit_data(symbol: str, timeframe: str, bybit: ccxt.Exchange, limit: int = 300) -> pd.DataFrame | None:
-    """
-    Fetches OHLCV data now that the ccxt instance is correctly initialized and markets are loaded.
-    It correctly handles the 'limit' parameter for the 1D timeframe.
-    """
     try:
-        # For the 1D timeframe, we must not send a 'limit'. Let the exchange use its default.
         fetch_limit = None if timeframe.upper() == '1D' else limit
-
         ohlcv = bybit.fetch_ohlcv(symbol, timeframe, limit=fetch_limit)
 
         if not ohlcv:
@@ -67,19 +50,37 @@ def fetch_bybit_data(symbol: str, timeframe: str, bybit: ccxt.Exchange, limit: i
         df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms', utc=True)
         df.set_index('timestamp', inplace=True)
         return df
-
-    except Exception as e:
-        logging.error(f"An unexpected error occurred fetching data for {symbol} on {timeframe}: {e}")
+    except Exception: # <-- CATCH GENERIC EXCEPTION
+        # --- THIS IS THE CRITICAL CHANGE ---
+        logging.error(f"An unexpected error occurred fetching data for {symbol} on {timeframe}:")
+        logging.error(traceback.format_exc()) # <-- PRINT THE FULL TRACEBACK
         return None
+
+# --- Telegram Notifier ---
+async def send_telegram_message(message: str):
+    # This function is fine, no changes needed here.
+    try:
+        bot = telegram.Bot(token=cfg.TELEGRAM_BOT_TOKEN)
+        await bot.send_message(
+            chat_id=cfg.TELEGRAM_CHAT_ID,
+            text=message,
+            parse_mode='Markdown'
+        )
+        logging.info("Successfully sent Telegram notification.")
+    except Exception:
+        logging.error("Failed to send Telegram message:")
+        logging.error(traceback.format_exc())
+
 
 # --- Data Preparation ---
 def _prep_live_data(symbol: str, bybit: ccxt.Exchange) -> pd.DataFrame | None:
+    # This function is fine, no changes needed here.
     df5 = fetch_bybit_data(symbol, cfg.BOT_TIMEFRAME, bybit, limit=500)
     df_atr_tf = fetch_bybit_data(symbol, cfg.ATR_TIMEFRAME, bybit)
     df_rsi_tf = fetch_bybit_data(symbol, cfg.RSI_TIMEFRAME, bybit)
 
     if any(df is None for df in [df5, df_atr_tf, df_rsi_tf]):
-        logging.warning(f"Could not fetch essential timeframes for {symbol}. Skipping.")
+        logging.warning(f"Could not fetch one or more essential timeframes for {symbol}. Skipping.")
         return None
 
     df5[f"atr_{cfg.ATR_TIMEFRAME}"] = ta.atr(df_atr_tf, cfg.ATR_PERIOD).reindex(df5.index, method="ffill")
@@ -93,22 +94,23 @@ def _prep_live_data(symbol: str, bybit: ccxt.Exchange) -> pd.DataFrame | None:
     
     return df5.dropna(subset=['close_boom_ago', f"rsi_{cfg.RSI_TIMEFRAME}", f"atr_{cfg.ATR_TIMEFRAME}"])
 
+
 # --- Main Signal Checking Logic ---
 def check_for_signals():
     logging.info("--- Starting new signal check cycle ---")
     
     cooldowns = load_cooldowns()
+    
     try:
         bybit = ccxt.bybit({'options': {'defaultType': 'swap'}})
         bybit.load_markets()
-    except Exception as e:
-        logging.error(f"Failed to initialize exchange or load markets: {e}")
-        return # Exit the cycle if we can't connect
+    except Exception:
+        logging.error("Failed to initialize exchange or load markets:")
+        logging.error(traceback.format_exc())
+        return
 
-    # --- Pre-fetch BTC data for context ---
     btc_is_strong = False
     if cfg.BTC_SLOW_FILTER_ENABLED:
-        # This call will now succeed
         btc_df = fetch_bybit_data("BTCUSDT", cfg.BTC_SLOW_TIMEFRAME, bybit)
         if btc_df is not None and not btc_df.empty:
             btc_df['ema'] = ta.ema(btc_df['close'], cfg.BTC_SLOW_EMA_PERIOD)
@@ -116,6 +118,8 @@ def check_for_signals():
             if pd.notna(btc_last.get('close')) and pd.notna(btc_last.get('ema')):
                 btc_is_strong = btc_last['close'] > btc_last['ema']
     
+    # ... The rest of the function remains the same ...
+    # (No changes needed in the symbol loop)
     try:
         with open(cfg.SYMBOLS_FILE, 'r') as fh:
             symbols = [line.split()[0].strip().upper() for line in fh if line.strip() and not line.strip().startswith("#")]
@@ -136,7 +140,6 @@ def check_for_signals():
         
         last_candle = df_prep.iloc[-2]
         
-        # --- Core Signal Trigger ---
         boom_ret = (last_candle["close"] / last_candle["close_boom_ago"]) - 1
         boom_cond = boom_ret >= cfg.PRICE_BOOM_PCT
         slow_cond = (last_candle["close"] / last_candle["close_slowdown_ago"] - 1) <= cfg.PRICE_SLOWDOWN_PCT
@@ -144,10 +147,8 @@ def check_for_signals():
         if not (boom_cond and slow_cond):
             continue
         
-        # --- If we reach here, a basic signal was found. Now, build the report. ---
         logging.info(f"!!! POTENTIAL SIGNAL FOUND for {symbol} !!! Building report...")
 
-        # --- Check Champion Filter Conditions ---
         champion_boom_ok = boom_ret >= cfg.CHAMPION_MIN_BOOM_PCT
         
         rsi_val = last_candle.get(f"rsi_{cfg.RSI_TIMEFRAME}", float('nan'))
@@ -157,18 +158,15 @@ def check_for_signals():
 
         all_champion_filters_met = champion_boom_ok and champion_rsi_ok and champion_btc_ok
         
-        # --- Build the Message ---
         title = "✅ *CHAMPION SIGNAL* ✅" if all_champion_filters_met else "⚠️ *POTENTIAL SIGNAL* ⚠️"
         
-        # Filter Checklist
         filter_lines = [
             f"{'✅' if champion_boom_ok else '❌'} *Boom > {cfg.CHAMPION_MIN_BOOM_PCT:.0%}?* (`{boom_ret:.2%}`)",
             f"{'✅' if champion_rsi_ok else '❌'} *RSI > {cfg.CHAMPION_MIN_RSI}?* (`{rsi_val:.2f}`)",
             f"{'✅' if champion_btc_ok else '❌'} *BTC Strong?* (`{btc_is_strong}`)"
         ]
         filter_checklist = "\n".join(filter_lines)
-        
-        # Trade Parameters
+
         entry_price = last_candle['close']
         atr_value = last_candle.get(f"atr_{cfg.ATR_TIMEFRAME}", float('nan'))
         
@@ -176,10 +174,9 @@ def check_for_signals():
             logging.warning(f"ATR value is NaN for {symbol}. Cannot calculate trade parameters.")
             continue
 
-        # Calculate all price levels
         stop_loss = entry_price + cfg.SL_ATR_MULT * atr_value
         partial_tp = entry_price - cfg.PARTIAL_TP_ATR_MULT * atr_value
-        tp2_price = entry_price - cfg.TP2_ATR_MULT * atr_value # <-- Calculate TP2
+        tp2_price = entry_price - cfg.TP2_ATR_MULT * atr_value
         trail_dist = cfg.TRAIL_ATR_MULT_FINAL * atr_value
 
         message = (
@@ -208,7 +205,7 @@ def check_for_signals():
 
 # --- Main Execution ---
 if __name__ == "__main__":
-    logging.info("Starting Crypto Signal Bot (Informational Mode)...")
+    logging.info("Starting Crypto Signal Bot (Diagnostic Mode)...")
     check_for_signals()
     schedule.every(cfg.BOT_SCHEDULE_MINUTES).minutes.do(check_for_signals)
     logging.info(f"Scheduled to run every {cfg.BOT_SCHEDULE_MINUTES} minutes.")
