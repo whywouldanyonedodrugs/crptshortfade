@@ -13,6 +13,14 @@ from pathlib import Path
 import config as cfg
 import indicators as ta
 
+
+# ==================================================================
+print("--- DIAGNOSTIC CHECK ---")
+print(f"[*] Config file being used: {cfg.__file__}")
+print(f"[*] Token value loaded: {cfg.TELEGRAM_BOT_TOKEN}")
+print("------------------------")
+# ==================================================================
+
 # --- Setup Logging ---
 logging.basicConfig(
     level=logging.INFO,
