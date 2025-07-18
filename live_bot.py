@@ -45,28 +45,21 @@ def save_cooldowns(cooldowns: dict):
 
 # --- CCXT Data Fetcher ---
 
+# live_bot.py
+
 def fetch_bybit_data(symbol: str, timeframe: str, bybit: ccxt.Exchange, limit: int = 300) -> pd.DataFrame | None:
     """
-    Fetches OHLCV data for Bybit perpetuals, specifically handling the 'limit'
-    parameter correctly for the 1D timeframe.
+    Fetches OHLCV data now that the ccxt instance is correctly initialized.
+    It correctly handles the 'limit' parameter for the 1D timeframe.
     """
     try:
-        # --- THIS IS THE CRITICAL FIX ---
         # For the 1D timeframe, we must not send a 'limit'. Let the exchange use its default.
         fetch_limit = None if timeframe.upper() == '1D' else limit
 
-        # We can now simplify the attempts, as the params are less of an issue
-        # than the limit was.
-        params = {'type': 'swap'}
-        ohlcv = bybit.fetch_ohlcv(symbol, timeframe, limit=fetch_limit, params=params)
-
-        # A single, simple fallback if the first fails
-        if not ohlcv:
-            logging.warning(f"Primary fetch for {symbol} ({timeframe}) failed. Retrying with no params...")
-            ohlcv = bybit.fetch_ohlcv(symbol, timeframe, limit=fetch_limit)
+        ohlcv = bybit.fetch_ohlcv(symbol, timeframe, limit=fetch_limit)
 
         if not ohlcv:
-            logging.error(f"All attempts to fetch data for {symbol} ({timeframe}) failed.")
+            logging.warning(f"No data returned for {symbol} on {timeframe}.")
             return None
 
         df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
