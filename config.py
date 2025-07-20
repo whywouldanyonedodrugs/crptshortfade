@@ -5,7 +5,7 @@ Edit only the plain  NAME = value  lines – no complex syntax.
 
 from pathlib import Path
 
-SIGNAL_COOLDOWN_MINUTES = 60 # Cooldown per symbol after a signal is sent
+SIGNAL_COOLDOWN_MINUTES = 240 # Cooldown per symbol after a signal is sent
 
 # ─── Live Bot & Notification Settings ────────────────────────────────
 TELEGRAM_BOT_TOKEN    = "7770157032:AAGO-J_Mb8Oxg3i6xQmWTj3rM3JMO5MMscQ"  # Replace with your Bot Token
