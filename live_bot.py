@@ -157,8 +157,9 @@ def check_for_signals():
         last_candle = df_prep.iloc[-2]
         
         boom_ret = (last_candle["close"] / last_candle["close_boom_ago"]) - 1
+        slowdown_ret = (last_candle["close"] / last_candle["close_slowdown_ago"]) - 1
         boom_cond = boom_ret >= cfg.PRICE_BOOM_PCT
-        slow_cond = (last_candle["close"] / last_candle["close_slowdown_ago"] - 1) <= cfg.PRICE_SLOWDOWN_PCT
+        slow_cond = slowdown_ret <= cfg.PRICE_SLOWDOWN_PCT
         
         if not (boom_cond and slow_cond):
             continue
@@ -171,6 +172,7 @@ def check_for_signals():
         champion_rsi_ok = pd.notna(rsi_val) and rsi_val >= cfg.CHAMPION_MIN_RSI
         
         champion_btc_ok = btc_is_strong
+        champion_slow_ok = slow_cond
 
         all_champion_filters_met = champion_boom_ok and champion_rsi_ok and champion_btc_ok
         
@@ -178,6 +180,7 @@ def check_for_signals():
         
         filter_lines = [
             f"{'✅' if champion_boom_ok else '❌'} *Boom > {cfg.CHAMPION_MIN_BOOM_PCT:.0%}?* (`{boom_ret:.2%}`)",
+            f"{'✅' if champion_slow_ok  else '❌'} *Slowdown ≤ {cfg.PRICE_SLOWDOWN_PCT:.0%}?* (`{slowdown_ret:.2%}`)\n",
             f"{'✅' if champion_rsi_ok else '❌'} *RSI > {cfg.CHAMPION_MIN_RSI}?* (`{rsi_val:.2f}`)",
             f"{'✅' if champion_btc_ok else '❌'} *BTC Strong?* (`{btc_is_strong}`)"
         ]
