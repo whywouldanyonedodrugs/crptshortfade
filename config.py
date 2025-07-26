@@ -43,7 +43,7 @@ BTC_SLOW_TIMEFRAME        = "1D"
 BTC_SLOW_EMA_PERIOD       = 200
 
 # ─── Trade Management / Exit Parameters (For Display) ──────────
-SL_ATR_MULT              = 3.0
+SL_ATR_MULT              = 2.5
 PARTIAL_TP_ATR_MULT      = 1.0
 TRAIL_ATR_MULT_FINAL     = 1
 
