@@ -28,7 +28,7 @@ SYMBOLS_FILE = PROJECT_ROOT / "symbols.txt"
 PRICE_BOOM_PERIOD_H      = 24
 # This is now the MINIMUM threshold to trigger a basic alert.
 # We will check our champion value (0.20) as a separate condition.
-PRICE_BOOM_PCT           = 0.10
+PRICE_BOOM_PCT           = 0.13
 
 PRICE_SLOWDOWN_PERIOD_H  = 4
 PRICE_SLOWDOWN_PCT       = 0.01
